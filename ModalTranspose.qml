@@ -839,13 +839,21 @@ MuseScore {
             newPitchClass = tgtChordNote.pitch;
         } else {
             var targetDeg = tgtScale[degree];
+            var srcDeg = srcScale[degree];
 
-            newPitchClass = (targetDeg.pitch + offset + 12) % 12;
+            var adjustedOffset = offset;
+            if (offset !== 0) {
+                var modeDiff = (targetDeg.pitch - srcDeg.pitch + 12) % 12;
+                if (modeDiff > 6) modeDiff -= 12;
+                adjustedOffset = offset - modeDiff;
+            }
+
+            newPitchClass = (targetDeg.pitch + adjustedOffset + 12) % 12;
             newLetter = targetDeg.letter;
             var baseAcc = targetDeg.accidental;
 
             var accVal = (baseAcc === "##" ? 2 : baseAcc === "#" ? 1 : baseAcc === "b" ? -1 : baseAcc === "bb" ? -2 : 0);
-            accVal += offset;
+            accVal += adjustedOffset;
 
             if (accVal === 0) newAcc = "";
             else if (accVal === 1) newAcc = "#";
