@@ -700,13 +700,13 @@ MuseScore {
                                 if (chordInfo && chordInfo.quality !== "unknown") {
                                     var chordDegree = findChordDegree(chordInfo.root, srcScale);
                                     var use7ths = chordPitches.length >= 4;
-                                    var targetChord = buildTargetChord(chordDegree, tgtScale, tgtMode, use7ths);
+                                    var targetChord = findFunctionalChord(chordDegree, chordInfo.quality, srcMode, tgtScale, tgtMode, use7ths);
                                     chordContextMap[tick] = {
                                         srcDegree: chordDegree,
                                         srcQuality: chordInfo.quality,
                                         srcRoot: chordInfo.root,
                                         tgtChord: targetChord,
-                                        tgtQuality: use7ths ? mode7thQualities[tgtMode][chordDegree] : modeChordQualities[tgtMode][chordDegree]
+                                        tgtQuality: use7ths ? mode7thQualities[tgtMode][targetChord[0].degree] : modeChordQualities[tgtMode][targetChord[0].degree]
                                     };
                                 }
                             }
@@ -758,24 +758,47 @@ MuseScore {
         transformSingleNoteWithContext(note, srcScale, tgtScale, preferFlats, tgtMode, null);
     }
     
+    function findFunctionalChord(srcDegree, srcQuality, srcMode, tgtScale, tgtMode, use7ths) {
+        var tgtQualityTable = use7ths ? mode7thQualities[tgtMode] : modeChordQualities[tgtMode];
+        var tgtQuality = tgtQualityTable[srcDegree];
+
+        var srcIsDim = (srcQuality === "dim" || srcQuality === "m7b5" || srcQuality === "dim7");
+        var tgtIsDim = (tgtQuality === "dim" || tgtQuality === "m7b5" || tgtQuality === "dim7");
+
+        if (tgtQuality === srcQuality) {
+            return buildTargetChord(srcDegree, tgtScale, tgtMode, use7ths);
+        }
+
+        if (!srcIsDim && tgtIsDim) {
+            var srcQualityTable = use7ths ? mode7thQualities[srcMode] : modeChordQualities[srcMode];
+            for (var d = 0; d < 7; d++) {
+                if (d === srcDegree) continue;
+                if (tgtQualityTable[d] === srcQuality || tgtQualityTable[d] === srcQualityTable[srcDegree]) {
+                    return buildTargetChord(d, tgtScale, tgtMode, use7ths);
+                }
+            }
+        }
+
+        return buildTargetChord(srcDegree, tgtScale, tgtMode, use7ths);
+    }
+
     function transformSingleNoteWithContext(note, srcScale, tgtScale, preferFlats, tgtMode, chordContext) {
         var pitch = note.pitch;
         var tpc = note.tpc1;
         var octave = Math.floor(pitch / 12);
         var pitchClass = pitch % 12;
-        
+
         var info = findDegreeInfo(pitch, tpc, srcScale);
         var degree = info.degree;
         var offset = info.offset;
-        
-        // Check if this note is a chord tone
+
         var useChordContext = false;
         var chordToneIndex = -1;
-        
+
         if (chordContext && chordContext.tgtChord) {
             var srcChordRoot = chordContext.srcRoot;
             var intervalFromRoot = (pitchClass - srcChordRoot + 12) % 12;
-            
+
             var srcQualityIntervals = chordIntervals[chordContext.srcQuality];
             if (srcQualityIntervals) {
                 for (var ci = 0; ci < srcQualityIntervals.length; ci++) {
@@ -788,9 +811,9 @@ MuseScore {
                 }
             }
         }
-        
+
         var newLetter, newAcc, newPitchClass;
-        
+
         if (useChordContext && chordToneIndex >= 0 && chordToneIndex < chordContext.tgtChord.length) {
             var tgtChordNote = chordContext.tgtChord[chordToneIndex];
             newLetter = tgtChordNote.letter;
@@ -798,58 +821,53 @@ MuseScore {
             newPitchClass = tgtChordNote.pitch;
         } else {
             var targetDeg = tgtScale[degree];
-              var srcDeg = srcScale[degree];
 
-              // Remove mode interval difference from offset to prevent double-counting
-              var adjustedOffset = offset;
-              if (offset !== 0) {
-                  var modeDiff = (targetDeg.pitch - srcDeg.pitch + 12) % 12;
-                  if (modeDiff > 6) modeDiff -= 12;
-                  adjustedOffset = offset - modeDiff;
-              }
+            newPitchClass = (targetDeg.pitch + offset + 12) % 12;
+            newLetter = targetDeg.letter;
+            var baseAcc = targetDeg.accidental;
 
-              newPitchClass = (targetDeg.pitch + adjustedOffset + 12) % 12;
-              newLetter = targetDeg.letter;
-              var baseAcc = targetDeg.accidental;
+            var accVal = (baseAcc === "##" ? 2 : baseAcc === "#" ? 1 : baseAcc === "b" ? -1 : baseAcc === "bb" ? -2 : 0);
+            accVal += offset;
 
-              var accVal = (baseAcc === "##" ? 2 : baseAcc === "#" ? 1 : baseAcc === "b" ? -1 : baseAcc === "bb" ? -2 : 0);
-              accVal += adjustedOffset;
-            
             if (accVal === 0) newAcc = "";
             else if (accVal === 1) newAcc = "#";
             else if (accVal === 2) newAcc = "##";
-            else if (accVal === -1)  newAcc = "b";
+            else if (accVal === -1) newAcc = "b";
             else if (accVal === -2) newAcc = "bb";
             else if (accVal > 2) newAcc = "##";
             else newAcc = "bb";
         }
-        
-        var respelled = respell(newLetter, newAcc, preferFlats);
-        newLetter = respelled.letter;
-        newAcc = respelled.accidental;
-        
+
         var basePitch = naturalPitches[newLetter] + (newAcc === "##" ? 2 : newAcc === "#" ? 1 : newAcc === "b" ? -1 : newAcc === "bb" ? -2 : 0);
         basePitch = (basePitch + 12) % 12;
-        
+
         var finalPitch = octave * 12 + basePitch;
         var distCurrent = Math.abs(finalPitch - pitch);
         var distUp = Math.abs((finalPitch + 12) - pitch);
         var distDown = Math.abs((finalPitch - 12) - pitch);
-        
+
         if (distUp < distCurrent && distUp <= distDown) {
             finalPitch += 12;
         } else if (distDown < distCurrent && distDown < distUp) {
             finalPitch -= 12;
         }
-        
+
         if (finalPitch < 0) finalPitch += 12;
         if (finalPitch > 127) finalPitch -= 12;
-        
+
         var newTpc = calcTPC(newLetter, newAcc);
-        
+
         note.pitch = finalPitch;
         note.tpc1 = newTpc;
         note.tpc2 = newTpc;
+
+        var tiedNote = note.tieForward ? note.tieForward.endNote : null;
+        while (tiedNote) {
+            tiedNote.pitch = finalPitch;
+            tiedNote.tpc1 = newTpc;
+            tiedNote.tpc2 = newTpc;
+            tiedNote = tiedNote.tieForward ? tiedNote.tieForward.endNote : null;
+        }
     }
     
     Component.onCompleted: {
