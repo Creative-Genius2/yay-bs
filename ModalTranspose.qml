@@ -758,26 +758,44 @@ MuseScore {
         transformSingleNoteWithContext(note, srcScale, tgtScale, preferFlats, tgtMode, null);
     }
     
+    // Harmonic function: tonic (T), subdominant (S), dominant (D), tonic-mediant (Tm), dominant-mediant (Dm)
+    property var degreeFunctions: {
+        "Ionian":     ["T", "S", "Tm", "S", "D", "Tm", "D"],
+        "Dorian":     ["T", "S", "Tm", "S", "D", "Dm", "Tm"],
+        "Phrygian":   ["T", "S", "Tm", "S", "D", "Tm", "D"],
+        "Lydian":     ["T", "D", "Tm", "S", "D", "Tm", "S"],
+        "Mixolydian": ["T", "S", "Tm", "S", "D", "Tm", "D"],
+        "Aeolian":    ["T", "S", "Tm", "S", "D", "Tm", "D"],
+        "Locrian":    ["T", "S", "Tm", "S", "D", "Tm", "D"]
+    }
+
     function findFunctionalChord(srcDegree, srcQuality, srcMode, tgtScale, tgtMode, use7ths) {
+        var srcFunctions = degreeFunctions[srcMode];
+        var tgtFunctions = degreeFunctions[tgtMode];
+        var srcFunction = srcFunctions[srcDegree];
+
         var tgtQualityTable = use7ths ? mode7thQualities[tgtMode] : modeChordQualities[tgtMode];
-        var tgtQuality = tgtQualityTable[srcDegree];
+        var srcQualityTable = use7ths ? mode7thQualities[srcMode] : modeChordQualities[srcMode];
 
-        var srcIsDim = (srcQuality === "dim" || srcQuality === "m7b5" || srcQuality === "dim7");
-        var tgtIsDim = (tgtQuality === "dim" || tgtQuality === "m7b5" || tgtQuality === "dim7");
-
-        if (tgtQuality === srcQuality) {
+        // Same degree, same function, same quality — direct map
+        if (tgtFunctions[srcDegree] === srcFunction && tgtQualityTable[srcDegree] === srcQuality) {
             return buildTargetChord(srcDegree, tgtScale, tgtMode, use7ths);
         }
 
-        if (!srcIsDim && tgtIsDim) {
-            var srcQualityTable = use7ths ? mode7thQualities[srcMode] : modeChordQualities[srcMode];
-            for (var d = 0; d < 7; d++) {
-                if (d === srcDegree) continue;
-                if (tgtQualityTable[d] === srcQuality || tgtQualityTable[d] === srcQualityTable[srcDegree]) {
-                    return buildTargetChord(d, tgtScale, tgtMode, use7ths);
-                }
+        // Find the degree in target mode with the same function AND compatible quality
+        var bestDegree = -1;
+        var fallbackDegree = -1;
+        for (var d = 0; d < 7; d++) {
+            if (tgtFunctions[d] !== srcFunction) continue;
+            if (tgtQualityTable[d] === srcQuality) {
+                bestDegree = d;
+                break;
             }
+            if (fallbackDegree === -1) fallbackDegree = d;
         }
+
+        if (bestDegree >= 0) return buildTargetChord(bestDegree, tgtScale, tgtMode, use7ths);
+        if (fallbackDegree >= 0) return buildTargetChord(fallbackDegree, tgtScale, tgtMode, use7ths);
 
         return buildTargetChord(srcDegree, tgtScale, tgtMode, use7ths);
     }
